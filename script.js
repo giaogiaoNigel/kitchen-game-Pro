@@ -1,4 +1,4 @@
-const SAVE_KEY = "kitchen_master_deluxe_save_v1";
+const SAVE_KEY = "kitchen_master_deluxe_save_v2";
 
 const state = {
   money: 0,
@@ -21,7 +21,8 @@ const state = {
     recipeId: null,
     tableId: null,
     orderId: null,
-    stage: null
+    stage: null,
+    running: false
   },
 
   queue: [],
@@ -234,14 +235,12 @@ function getRecipe(id) {
 function canAct() {
   return !state.gameOver && !state.paused;
 }
-
 function log(msg) {
   const div = document.createElement("div");
   div.className = "log-item";
   div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
   els.log.prepend(div);
 }
-
 function beep(type = "ok") {
   if (!state.soundOn) return;
   try {
@@ -250,24 +249,14 @@ function beep(type = "ok") {
     const gain = ctx.createGain();
     osc.connect(gain);
     gain.connect(ctx.destination);
-
     osc.type = type === "bad" ? "sawtooth" : type === "serve" ? "triangle" : "sine";
     osc.frequency.value = type === "bad" ? 180 : type === "serve" ? 560 : 420;
-
     gain.gain.setValueAtTime(0.0001, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.05, ctx.currentTime + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
-
     osc.start();
     osc.stop(ctx.currentTime + 0.2);
   } catch (e) {}
-}
-
-function flash(el) {
-  if (!el) return;
-  el.classList.remove("flash");
-  void el.offsetWidth;
-  el.classList.add("flash");
 }
 
 function updateTop() {
@@ -282,14 +271,25 @@ function updateTop() {
   els.pauseBtn.textContent = state.paused ? "继续" : "暂停";
 }
 
+function setKitchenStageState(prep, cook, plate) {
+  els.prepState.textContent = prep;
+  els.cookState.textContent = cook;
+  els.plateState.textContent = plate;
+}
+
+function refreshKitchenButtons() {
+  const active = state.activeCooking;
+  els.startCookBtn.disabled = state.paused || state.gameOver || active.busy;
+  els.prepBtn.disabled = !(active.busy && active.stage === "prep" && !active.running && !state.paused && !state.gameOver);
+  els.cookBtn.disabled = !(active.busy && active.stage === "cook" && !active.running && !state.paused && !state.gameOver);
+  els.plateBtn.disabled = !(active.busy && active.stage === "plate" && !active.running && !state.paused && !state.gameOver);
+}
+
 function hasIngredients(recipe) {
   return Object.entries(recipe.ingredients).every(([k, v]) => inventory[k] >= v);
 }
-
 function consumeIngredients(recipe) {
-  Object.entries(recipe.ingredients).forEach(([k, v]) => {
-    inventory[k] -= v;
-  });
+  Object.entries(recipe.ingredients).forEach(([k, v]) => inventory[k] -= v);
 }
 
 function renderIngredients() {
@@ -310,16 +310,14 @@ function renderIngredients() {
 function renderMenu() {
   els.menu.innerHTML = "";
   recipes.forEach(recipe => {
-    const div = document.createElement("div");
     const selected = state.selectedRecipeId === recipe.id;
-    div.className = `card menu-item ${selected ? "selected" : ""}`;
-
+    const pendingCount = state.orders.filter(o => o.recipeId === recipe.id && (o.status === "pending" || o.status === "cooking")).length;
     const req = Object.entries(recipe.ingredients)
       .map(([k, v]) => `${ingredientMeta[k].icon}${ingredientMeta[k].name}x${v}`)
       .join(" / ");
 
-    const pendingCount = state.orders.filter(o => o.recipeId === recipe.id && (o.status === "pending" || o.status === "cooking")).length;
-
+    const div = document.createElement("div");
+    div.className = `card menu-item ${selected ? "selected" : ""}`;
     div.innerHTML = `
       <div class="menu-icon">${recipe.icon}</div>
       <div class="row"><b>${recipe.name}</b><span>💰${recipe.price}</span></div>
@@ -341,14 +339,10 @@ function renderMenu() {
 
 function renderTables() {
   els.tables.innerHTML = "";
-
   tables.forEach(table => {
     let statusText = "空桌";
     let statusClass = "s-empty";
-    let body = `
-      <div class="customer-avatar">🪑</div>
-      <div class="subtle">等待安排客人</div>
-    `;
+    let body = `<div class="customer-avatar">🪑</div><div class="subtle">等待安排客人</div>`;
 
     if (table.status === "waiting" && table.customer) {
       statusText = "等待上菜";
@@ -381,16 +375,16 @@ function renderTables() {
       `;
     }
 
-    const card = document.createElement("div");
-    card.className = "table-card";
-    card.innerHTML = `
+    const div = document.createElement("div");
+    div.className = "table-card";
+    div.innerHTML = `
       <div class="table-top">
         <div class="table-no">桌号 #${table.id}</div>
         <div class="status-pill ${statusClass}">${statusText}</div>
       </div>
       ${body}
     `;
-    els.tables.appendChild(card);
+    els.tables.appendChild(div);
   });
 }
 
@@ -400,7 +394,6 @@ function renderQueue() {
     els.queue.innerHTML = `<div class="card">当前没有排队顾客。</div>`;
     return;
   }
-
   state.queue.forEach(customer => {
     const recipe = getRecipe(customer.recipeId);
     const div = document.createElement("div");
@@ -421,12 +414,10 @@ function renderQueue() {
 function renderOrders() {
   els.orders.innerHTML = "";
   const active = state.orders.filter(o => ["pending", "cooking"].includes(o.status));
-
   if (active.length === 0) {
     els.orders.innerHTML = `<div class="card">暂无订单。</div>`;
     return;
   }
-
   active.forEach(order => {
     const recipe = getRecipe(order.recipeId);
     const div = document.createElement("div");
@@ -446,7 +437,6 @@ function renderReady() {
     els.readyList.innerHTML = `<div class="card">暂无待上菜品。</div>`;
     return;
   }
-
   state.readyDishes.forEach(dish => {
     const recipe = getRecipe(dish.recipeId);
     const div = document.createElement("div");
@@ -463,55 +453,48 @@ function renderReady() {
 
 function renderUpgrades() {
   els.upgrades.innerHTML = "";
-
   const list = [
     {
-      id: "prepLevel",
       name: "备料效率",
       icon: "🔪",
-      desc: "每级备料速度提升 12%",
       level: state.upgrades.prepLevel,
+      desc: "每级备料速度提升 12%",
       cost: 40 + state.upgrades.prepLevel * 30,
-      onBuy() {
+      buy() {
         if (state.money < this.cost) return log("金币不足，无法升级备料效率。");
         state.money -= this.cost;
         state.upgrades.prepLevel++;
         log("升级成功：备料效率提升。");
-        beep("ok");
         updateAll();
         saveGame();
       }
     },
     {
-      id: "cookLevel",
       name: "炉灶火候",
       icon: "🔥",
-      desc: "每级烹饪速度提升 12%",
       level: state.upgrades.cookLevel,
+      desc: "每级烹饪速度提升 12%",
       cost: 50 + state.upgrades.cookLevel * 35,
-      onBuy() {
+      buy() {
         if (state.money < this.cost) return log("金币不足，无法升级炉灶火候。");
         state.money -= this.cost;
         state.upgrades.cookLevel++;
         log("升级成功：烹饪效率提升。");
-        beep("ok");
         updateAll();
         saveGame();
       }
     },
     {
-      id: "patienceLevel",
       name: "大厅服务",
       icon: "🪑",
-      desc: "每级顾客初始耐心 +10",
       level: state.upgrades.patienceLevel,
+      desc: "每级顾客初始耐心 +10",
       cost: 45 + state.upgrades.patienceLevel * 30,
-      onBuy() {
+      buy() {
         if (state.money < this.cost) return log("金币不足，无法升级大厅服务。");
         state.money -= this.cost;
         state.upgrades.patienceLevel++;
         log("升级成功：顾客更有耐心。");
-        beep("ok");
         updateAll();
         saveGame();
       }
@@ -529,7 +512,7 @@ function renderUpgrades() {
         <button class="btn btn-gold">升级</button>
       </div>
     `;
-    div.querySelector("button").addEventListener("click", () => item.onBuy());
+    div.querySelector("button").addEventListener("click", () => item.buy());
     els.upgrades.appendChild(div);
   });
 }
@@ -539,9 +522,17 @@ function updateCookStatus() {
   els.currentRecipe.textContent = recipe ? `${recipe.icon} ${recipe.name}` : "无";
   els.currentTable.textContent = state.activeCooking.tableId || "-";
 
-  els.prepState.textContent = state.activeCooking.stage === "prep" ? "待执行" : "空闲";
-  els.cookState.textContent = state.activeCooking.stage === "cook" ? "待执行" : "空闲";
-  els.plateState.textContent = state.activeCooking.stage === "plate" ? "待执行" : "空闲";
+  if (!state.activeCooking.busy) {
+    setKitchenStageState("空闲", "空闲", "空闲");
+  } else if (state.activeCooking.stage === "prep") {
+    setKitchenStageState(state.activeCooking.running ? "进行中" : "待执行", "空闲", "空闲");
+  } else if (state.activeCooking.stage === "cook") {
+    setKitchenStageState("完成", state.activeCooking.running ? "进行中" : "待执行", "空闲");
+  } else if (state.activeCooking.stage === "plate") {
+    setKitchenStageState("完成", "完成", state.activeCooking.running ? "进行中" : "待执行");
+  }
+
+  refreshKitchenButtons();
 }
 
 function updateAll() {
@@ -568,27 +559,25 @@ function spawnCustomer() {
   };
   state.queue.push(customer);
   log(`${customer.name} 来了，想点 ${recipe.name}。`);
-  beep("ok");
   renderQueue();
   saveGame();
 }
 
 function seatCustomer(customerId) {
   if (!canAct()) return;
-  const i = state.queue.findIndex(c => c.id === customerId);
-  if (i === -1) return;
+  const index = state.queue.findIndex(c => c.id === customerId);
+  if (index === -1) return;
 
   const table = tables.find(t => t.status === "empty" && !t.dirty);
   if (!table) {
     state.rating -= 2;
     state.combo = 0;
-    log("没有空桌，顾客暂时无法入座。");
-    beep("bad");
     updateTop();
+    log("没有空桌，顾客暂时无法入座。");
     return;
   }
 
-  const customer = state.queue.splice(i, 1)[0];
+  const customer = state.queue.splice(index, 1)[0];
   table.status = "waiting";
   table.customer = customer;
   table.orderId = uid("ord");
@@ -603,31 +592,33 @@ function seatCustomer(customerId) {
   });
 
   log(`${customer.name} 已在 ${table.id} 号桌入座并完成点餐。`);
-  beep("ok");
   updateAll();
   saveGame();
 }
 
-function progressBar(el, duration, done) {
-  let start = null;
-  el.style.width = "0%";
+function runProgress(barEl, duration, onDone) {
+  let elapsed = 0;
+  const step = 30;
+  barEl.style.width = "0%";
 
-  function frame(ts) {
-    if (state.paused || state.gameOver) {
-      requestAnimationFrame(frame);
+  const timer = setInterval(() => {
+    if (state.gameOver) {
+      clearInterval(timer);
       return;
     }
-    if (!start) start = ts;
-    const p = Math.min((ts - start) / duration, 1);
-    el.style.width = `${p * 100}%`;
-    if (p < 1) {
-      requestAnimationFrame(frame);
-    } else {
-      done();
-    }
-  }
+    if (state.paused) return;
 
-  requestAnimationFrame(frame);
+    elapsed += step;
+    const p = Math.min(elapsed / duration, 1);
+    barEl.style.width = `${p * 100}%`;
+
+    if (p >= 1) {
+      clearInterval(timer);
+      onDone();
+    }
+  }, step);
+
+  return timer;
 }
 
 function fxBurst() {
@@ -651,7 +642,8 @@ function resetCooking(clearSelection = true) {
     recipeId: null,
     tableId: null,
     orderId: null,
-    stage: null
+    stage: null,
+    running: false
   };
   els.prepBar.style.width = "0%";
   els.cookBar.style.width = "0%";
@@ -674,25 +666,21 @@ function startCookingFlow() {
 
   const recipe = getRecipe(state.selectedRecipeId);
   const order = state.orders.find(o => o.recipeId === recipe.id && o.status === "pending" && !o.fulfilled);
-
   if (!order) {
     log("当前没有该菜品对应的待制作订单。");
-    beep("bad");
     return;
   }
 
   const table = tables.find(t => t.id === order.tableId);
   if (!table || table.status !== "waiting" || !table.customer) {
     log("对应顾客已不在等待状态，无法开始该订单。");
-    beep("bad");
     return;
   }
 
   if (!hasIngredients(recipe)) {
     state.rating -= 3;
-    log(`食材不足，无法制作 ${recipe.name}。`);
-    beep("bad");
     updateTop();
+    log(`食材不足，无法制作 ${recipe.name}。`);
     return;
   }
 
@@ -704,9 +692,9 @@ function startCookingFlow() {
   state.activeCooking.tableId = order.tableId;
   state.activeCooking.orderId = order.id;
   state.activeCooking.stage = "prep";
+  state.activeCooking.running = false;
 
-  log(`开始制作 ${recipe.name}，对应 ${order.tableId} 号桌。`);
-  beep("ok");
+  log(`开始制作 ${recipe.name}，对应 ${order.tableId} 号桌。请点击“进行备料”。`);
   updateAll();
   saveGame();
 }
@@ -723,49 +711,66 @@ function getPlateDuration(recipe) {
 
 function doPrep() {
   if (!canAct()) return;
-  if (!state.activeCooking.busy || state.activeCooking.stage !== "prep") {
+  if (!state.activeCooking.busy || state.activeCooking.stage !== "prep" || state.activeCooking.running) {
     log("当前不能进行备料。");
     return;
   }
+
   const recipe = getRecipe(state.activeCooking.recipeId);
-  els.prepBtn.disabled = true;
-  progressBar(els.prepBar, getPrepDuration(recipe), () => {
+  if (!recipe) {
+    log("未找到当前菜谱，备料失败。");
+    resetCooking();
+    return;
+  }
+
+  state.activeCooking.running = true;
+  updateCookStatus();
+  log(`开始备料：${recipe.name}`);
+
+  runProgress(els.prepBar, getPrepDuration(recipe), () => {
+    state.activeCooking.running = false;
     state.activeCooking.stage = "cook";
-    els.prepBtn.disabled = false;
     updateCookStatus();
-    log(`${recipe.name} 备料完成。`);
-    beep("ok");
+    log(`${recipe.name} 备料完成，请点击“开始烹饪”。`);
     saveGame();
   });
 }
 
 function doCook() {
   if (!canAct()) return;
-  if (!state.activeCooking.busy || state.activeCooking.stage !== "cook") {
+  if (!state.activeCooking.busy || state.activeCooking.stage !== "cook" || state.activeCooking.running) {
     log("当前不能开始烹饪。");
     return;
   }
+
   const recipe = getRecipe(state.activeCooking.recipeId);
-  els.cookBtn.disabled = true;
+  if (!recipe) {
+    log("未找到当前菜谱，烹饪失败。");
+    resetCooking();
+    return;
+  }
+
+  state.activeCooking.running = true;
+  updateCookStatus();
+  log(`开始烹饪：${recipe.name}`);
 
   const fxTimer = setInterval(() => {
     if (!state.paused && !state.gameOver) fxBurst();
   }, 320);
 
-  progressBar(els.cookBar, getCookDuration(recipe), () => {
+  runProgress(els.cookBar, getCookDuration(recipe), () => {
     clearInterval(fxTimer);
+    state.activeCooking.running = false;
     state.activeCooking.stage = "plate";
-    els.cookBtn.disabled = false;
     updateCookStatus();
-    log(`${recipe.name} 烹饪完成。`);
-    beep("ok");
+    log(`${recipe.name} 烹饪完成，请点击“精致装盘”。`);
     saveGame();
   });
 }
 
 function doPlate() {
   if (!canAct()) return;
-  if (!state.activeCooking.busy || state.activeCooking.stage !== "plate") {
+  if (!state.activeCooking.busy || state.activeCooking.stage !== "plate" || state.activeCooking.running) {
     log("当前不能进行装盘。");
     return;
   }
@@ -773,16 +778,21 @@ function doPlate() {
   const recipe = getRecipe(state.activeCooking.recipeId);
   const order = state.orders.find(o => o.id === state.activeCooking.orderId);
 
-  els.plateBtn.disabled = true;
+  if (!recipe) {
+    log("未找到当前菜谱，装盘失败。");
+    resetCooking();
+    return;
+  }
 
-  progressBar(els.plateBar, getPlateDuration(recipe), () => {
-    els.plateBtn.disabled = false;
+  state.activeCooking.running = true;
+  updateCookStatus();
+  log(`开始装盘：${recipe.name}`);
 
-    // 自检修复 1：
-    // 防止同一订单重复装盘/重复结算
+  runProgress(els.plateBar, getPlateDuration(recipe), () => {
+    state.activeCooking.running = false;
+
     if (!order || order.fulfilled) {
       log("订单已失效或已完成，装盘结果作废。");
-      beep("bad");
       resetCooking();
       renderOrders();
       renderReady();
@@ -790,7 +800,6 @@ function doPlate() {
       return;
     }
 
-    // 若顾客已经离开，该菜变成“损耗”
     const table = tables.find(t => t.id === state.activeCooking.tableId);
     const validWaitingTable = table && (table.status === "waiting" || table.status === "eating");
 
@@ -799,8 +808,8 @@ function doPlate() {
       order.fulfilled = true;
       state.combo = 0;
       state.rating -= 4;
+      updateTop();
       log(`${recipe.name} 虽已做好，但顾客已离开，造成损耗。`);
-      beep("bad");
       resetCooking();
       updateAll();
       saveGame();
@@ -816,7 +825,6 @@ function doPlate() {
     });
 
     log(`${recipe.name} 已装盘完成，等待上菜。`);
-    beep("ok");
     resetCooking(false);
     renderReady();
     renderOrders();
@@ -834,18 +842,14 @@ function serveDish(dishId) {
   const table = tables.find(t => t.id === dish.tableId);
   const recipe = getRecipe(dish.recipeId);
 
-  // 自检修复 2：
-  // 防止对不存在/已失效桌位上菜导致异常
   if (!order || order.fulfilled || !table || table.status !== "waiting" || !table.customer) {
     state.readyDishes.splice(idx, 1);
     log("上菜失败：该订单或桌位状态已失效，菜品已移除。");
-    beep("bad");
     renderReady();
     saveGame();
     return;
   }
 
-  // 标记完成，防止重复上菜
   order.status = "served";
   order.fulfilled = true;
   dish.served = true;
@@ -863,9 +867,7 @@ function serveDish(dishId) {
   table.status = "eating";
 
   log(`已向 ${table.id} 号桌上菜：${recipe.name}，获得 ${income} 金币。`);
-  beep("serve");
 
-  // 用餐结束
   if (table.eatTimer) clearTimeout(table.eatTimer);
   table.eatTimer = setTimeout(() => {
     if (state.gameOver) return;
@@ -895,9 +897,8 @@ function washDishes() {
   state.dirtyDishes -= washed;
   state.money += washed * 2;
   state.rating = Math.min(100, state.rating + 0.3);
-  log(`你清洗了 ${washed} 组碗盘。`);
-  beep("ok");
   updateTop();
+  log(`你清洗了 ${washed} 组碗盘。`);
   saveGame();
 }
 
@@ -919,20 +920,17 @@ function cleanMesses() {
   state.money += 3;
   state.rating = Math.min(100, state.rating + 0.5);
 
-  log(`你完成了 ${dirtyTable.id} 号桌的擦桌与整理。`);
-  beep("ok");
   renderTables();
   updateTop();
+  log(`你完成了 ${dirtyTable.id} 号桌的擦桌与整理。`);
   saveGame();
 }
 
 function customerTick() {
   if (!canAct()) return;
-
   tables.forEach(table => {
     if (table.status === "waiting" && table.customer) {
       table.customer.patience -= rand(2, 5);
-
       if (table.customer.patience <= 0) {
         const leavingName = table.customer.name;
         const order = state.orders.find(o => o.id === table.orderId && !o.fulfilled);
@@ -941,10 +939,6 @@ function customerTick() {
           order.status = "failed";
           order.fulfilled = true;
         }
-
-        // 自检修复 3：
-        // 若顾客离开时该订单正在 cooking，不直接删对象，标记为 failed，
-        // 以便后续装盘阶段识别订单失效而不是报错。
         if (order && order.status === "cooking") {
           order.status = "failed";
         }
@@ -957,13 +951,10 @@ function customerTick() {
         state.messes += 1;
         state.combo = 0;
         state.rating -= 10;
-
         log(`${leavingName} 等得太久，生气离开了！`);
-        beep("bad");
       }
     }
   });
-
   renderTables();
   renderOrders();
   updateTop();
@@ -973,9 +964,7 @@ function customerTick() {
 function autoSpawnLoop() {
   setInterval(() => {
     if (!canAct()) return;
-    if (state.queue.length < 4 && Math.random() < 0.72) {
-      spawnCustomer();
-    }
+    if (state.queue.length < 4 && Math.random() < 0.72) spawnCustomer();
   }, 7000);
 }
 
@@ -1012,9 +1001,9 @@ function refillLoop() {
     if (!canAct()) return;
     const key = pick(Object.keys(inventory));
     inventory[key] += 1;
-    log(`仓库补货：${ingredientMeta[key].name} +1`);
     renderIngredients();
     renderMenu();
+    log(`仓库补货：${ingredientMeta[key].name} +1`);
     saveGame();
   }, 11000);
 }
@@ -1022,6 +1011,7 @@ function refillLoop() {
 function pauseToggle() {
   if (state.gameOver) return;
   state.paused = !state.paused;
+  updateCookStatus();
   updateTop();
   log(state.paused ? "游戏已暂停。" : "游戏继续。");
 }
@@ -1059,7 +1049,6 @@ function saveGame() {
 function loadGame() {
   const raw = localStorage.getItem(SAVE_KEY);
   if (!raw) return false;
-
   try {
     const save = JSON.parse(raw);
     Object.assign(state, {
@@ -1076,7 +1065,10 @@ function loadGame() {
       orders: save.state.orders,
       queue: save.state.queue,
       readyDishes: save.state.readyDishes,
-      activeCooking: save.state.activeCooking
+      activeCooking: {
+        ...save.state.activeCooking,
+        running: false
+      }
     });
 
     Object.keys(inventory).forEach(k => {
@@ -1142,7 +1134,6 @@ function bind() {
 
 function init() {
   const loaded = loadGame();
-
   updateAll();
   bind();
 
@@ -1159,7 +1150,6 @@ function init() {
   customerLoop();
   refillLoop();
 
-  // 自动存档
   setInterval(() => {
     if (!state.gameOver) saveGame();
   }, 10000);
