@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>厨房大师 Deluxe</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app" class="app">
+    <header class="topbar glass">
+      <div class="brand">
+        <div class="brand-icon">🍳</div>
+        <div>
+          <h1>厨房大师 Deluxe</h1>
+          <p>接客、点餐、做饭、上菜、洗碗、擦桌，一条龙经营</p>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><span>💰</span><b id="money">0</b><small>金币</small></div>
+        <div class="stat"><span>⭐</span><b id="rating">100</b><small>评分</small></div>
+        <div class="stat"><span>🔥</span><b id="combo">0</b><small>连击</small></div>
+        <div class="stat"><span>⏱</span><b id="time">240</b><small>时间</small></div>
+        <div class="stat"><span>🏆</span><b id="highScore">0</b><small>最高分</small></div>
+      </div>
+
+      <div class="top-actions">
+        <button id="pauseBtn" class="btn btn-secondary">暂停</button>
+        <button id="soundBtn" class="btn btn-secondary">音效：开</button>
+        <button id="saveBtn" class="btn btn-secondary">手动保存</button>
+      </div>
+    </header>
+
+    <main class="main-grid">
+      <section class="col left-col">
+        <div class="panel glass">
+          <div class="panel-title">
+            <h2>🪑 餐厅大厅</h2>
+            <span class="tag">桌位经营</span>
+          </div>
+          <div id="tables" class="tables"></div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-title">
+            <h2>🚶 顾客队列</h2>
+            <button id="spawnBtn" class="btn btn-primary">+ 来客</button>
+          </div>
+          <div id="queue" class="queue"></div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-title">
+            <h2>🧽 清洁区</h2>
+            <span class="tag">后勤</span>
+          </div>
+          <div class="clean-grid">
+            <div class="clean-card">
+              <div class="clean-icon">🍽️</div>
+              <div class="clean-label">脏盘</div>
+              <div id="dirtyDishes" class="clean-num">0</div>
+              <button id="washBtn" class="btn btn-gold">洗碗</button>
+            </div>
+            <div class="clean-card">
+              <div class="clean-icon">🧹</div>
+              <div class="clean-label">污渍</div>
+              <div id="messes" class="clean-num">0</div>
+              <button id="cleanBtn" class="btn btn-gold">擦桌/清理</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="col center-col">
+        <div class="panel glass">
+          <div class="panel-title">
+            <h2>🍲 厨房操作台</h2>
+            <span id="cookHint" class="tag accent">请选择订单对应菜品</span>
+          </div>
+
+          <div class="stations">
+            <div class="station">
+              <div class="station-head">
+                <h3>🔪 备料台</h3>
+                <span id="prepState" class="state-pill">空闲</span>
+              </div>
+              <div class="station-visual prep-bg">🥬🥚🍅</div>
+              <div class="progress"><div id="prepBar" class="bar"></div></div>
+              <button id="prepBtn" class="btn btn-gold">进行备料</button>
+            </div>
+
+            <div class="station stove">
+              <div class="station-head">
+                <h3>🔥 炉灶</h3>
+                <span id="cookState" class="state-pill">空闲</span>
+              </div>
+              <div class="station-visual stove-bg">
+                <div id="fxLayer" class="fx-layer"></div>
+                🍳
+              </div>
+              <div class="progress"><div id="cookBar" class="bar hot"></div></div>
+              <button id="cookBtn" class="btn btn-gold">开始烹饪</button>
+            </div>
+
+            <div class="station">
+              <div class="station-head">
+                <h3>🍽 装盘台</h3>
+                <span id="plateState" class="state-pill">空闲</span>
+              </div>
+              <div class="station-visual plate-bg">✨🍽️✨</div>
+              <div class="progress"><div id="plateBar" class="bar cool"></div></div>
+              <button id="plateBtn" class="btn btn-gold">精致装盘</button>
+            </div>
+          </div>
+
+          <div class="current-cook glass-lite">
+            <div><b>当前制作：</b><span id="currentRecipe">无</span></div>
+            <div><b>对应桌号：</b><span id="currentTable">-</span></div>
+          </div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-title">
+            <h2>📦 食材仓库</h2>
+            <span class="tag">自动补货</span>
+          </div>
+          <div id="ingredients" class="ingredients"></div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-title">
+            <h2>🍜 精品菜单</h2>
+            <span class="tag">点击选择制作</span>
+          </div>
+          <div id="menu" class="menu-grid"></div>
+          <button id="startCookBtn" class="btn btn-primary wide">开始制作已选菜品</button>
+        </div>
+      </section>
+
+      <section class="col right-col">
+        <div class="panel glass">
+          <div class="panel-title">
+            <h2>🧾 当前订单</h2>
+            <span class="tag">待做 / 制作中</span>
+          </div>
+          <div id="orders" class="orders"></div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-title">
+            <h2>🍽 待上菜</h2>
+            <span class="tag accent">尽快送达</span>
+          </div>
+          <div id="readyList" class="ready-list"></div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-title">
+            <h2>⬆️ 升级中心</h2>
+            <span class="tag">经营强化</span>
+          </div>
+          <div id="upgrades" class="upgrades"></div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-title">
+            <h2>📰 经营日志</h2>
+            <span class="tag">实时事件</span>
+          </div>
+          <div id="log" class="log"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="gameOver" class="modal hidden">
+    <div class="modal-card glass">
+      <h2>🎮 营业结束</h2>
+      <p>金币：<b id="finalMoney">0</b></p>
+      <p>评分：<b id="finalRating">0</b></p>
+      <p>最高分：<b id="finalHighScore">0</b></p>
+      <div class="modal-actions">
+        <button id="restartBtn" class="btn btn-primary">重新开始</button>
+        <button id="clearSaveBtn" class="btn btn-secondary">清除存档</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
